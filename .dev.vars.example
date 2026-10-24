@@ -1,0 +1,10 @@
+# 複製本檔為 .dev.vars 後填入實際值（.dev.vars 已被 .gitignore 忽略，不會上傳）
+# Notion internal integration secret：https://www.notion.so/profile/integrations
+NOTION_TOKEN=
+# MCP 客戶端存取本伺服器的 token（例如：openssl rand -hex 32）
+MCP_AUTH_TOKEN=
+
+# 以下為選配，需要時取消註解：
+# NOTION_VERSION=2022-06-28
+# ALLOWED_ORIGINS=https://your-web-client.example
+# ALLOW_QUERY_TOKEN=false
