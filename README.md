@@ -16,7 +16,7 @@
 | `NOTION_TOKEN` | 是 | Notion Internal Integration secret |
 | `MCP_AUTH_TOKEN` | 是 | 客戶端存取本伺服器的 Bearer token（例如 `openssl rand -hex 32`） |
 | `NOTION_VERSION` | 否 | 預設 `2022-06-28` |
-| `ALLOWED_ORIGINS` | 否 | 逗號分隔的瀏覽器 Origin 白名單 |
+| `ALLOWED_ORIGINS` | 否 | 逗號分隔的瀏覽器 Origin 白名單，支援 `*` 萬用字元。留空 = 允許任何來源 |
 | `ALLOW_QUERY_TOKEN` | 否 | 設為 `true` 時也接受 `?key=<token>`（較不安全） |
 
 ## 部署
@@ -62,6 +62,24 @@ curl -s $URL -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 curl -s $URL -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"notion_search","arguments":{"query":"","page_size":5}}}'
 ```
+
+## 瀏覽器 CORS
+
+從網頁前端呼叫時，瀏覽器會送 `Origin`。`ALLOWED_ORIGINS` 留空即允許所有來源（會回對應的
+`Access-Control-Allow-Origin`），通常不需要設定。
+
+若要限制來源，填入完整 origin（含 scheme、不含路徑、不可只寫網域），可用 `*` 萬用字元：
+
+```
+ALLOWED_ORIGINS=https://chizk-gpt.hf.space
+ALLOWED_ORIGINS=https://*.hf.space,https://app.example.com
+```
+
+注意：正確寫法是 `https://*.hf.space`，不是 `*.hf.space`，也不是 `hf.space`。
+
+若在白名單中卻仍被擋，代表 `Origin` 與設定值不一致（`http` vs `https`、含尾斜線、
+或子網域不符）。前端若同時送 `Authorization` 標頭，瀏覽器會先發 `OPTIONS` 預檢，
+本伺服器對 `OPTIONS` 一律回 204 並附 CORS 標頭。
 
 ## 接到客戶端
 

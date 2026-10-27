@@ -11,7 +11,7 @@ export interface Env {
   NOTION_TOKEN: string; // Notion internal integration secret
   MCP_AUTH_TOKEN: string; // token clients must present to this server
   NOTION_VERSION?: string; // default 2022-06-28
-  ALLOWED_ORIGINS?: string; // comma-separated, optional (browser clients)
+  ALLOWED_ORIGINS?: string; // comma-separated origin allowlist, `*` wildcards OK, empty = allow all
   ALLOW_QUERY_TOKEN?: string; // "true" => also accept ?key=<token> (less secure)
 }
 
@@ -546,13 +546,29 @@ function allowedOrigins(env: Env): string[] {
   return (env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+/**
+ * Empty list = allow any origin (browser clients work out of the box).
+ * Entries are exact origins by default; `*` wildcards are supported,
+ * e.g. "https://*.hf.space" or "*".
+ */
+function originAllowed(origin: string, allow: string[]): boolean {
+  if (!allow.length) return true;
+  return allow.some((pattern) => {
+    if (pattern === "*") return true;
+    if (!pattern.includes("*")) return pattern === origin;
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+    return new RegExp(`^${escaped}$`).test(origin);
+  });
+}
+
 function corsHeaders(req: Request, env: Env): Record<string, string> {
   const origin = req.headers.get("Origin");
-  if (!origin || !allowedOrigins(env).includes(origin)) return {};
+  if (!origin || !originAllowed(origin, allowedOrigins(env))) return {};
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, MCP-Protocol-Version, Mcp-Session-Id",
+    "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
 }
@@ -583,7 +599,7 @@ export async function handleRequest(req: Request, env: Env): Promise<Response> {
 
   const origin = req.headers.get("Origin");
   const allow = allowedOrigins(env);
-  if (origin && allow.length && !allow.includes(origin)) return json({ error: "Origin not allowed" }, 403);
+  if (origin && !originAllowed(origin, allow)) return json({ error: "Origin not allowed" }, 403);
 
   if (!env.MCP_AUTH_TOKEN || !env.NOTION_TOKEN) {
     return json({ error: "Server is not configured (missing secrets)" }, 500, cors);
