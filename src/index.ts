@@ -1,10 +1,10 @@
 /**
- * Notion MCP Server for Cloudflare Workers (free-tier friendly)
+ * Notion MCP Server (Netlify Functions)
  *
  * Transport : MCP Streamable HTTP (stateless, single JSON response per POST)
  * Endpoint  : POST /mcp
  * Auth      : Authorization: Bearer <MCP_AUTH_TOKEN>
- * No SDK dependency -> tiny bundle, tiny CPU time.
+ * No SDK dependency -> tiny bundle.
  */
 
 export interface Env {
@@ -17,7 +17,6 @@ export interface Env {
 
 const SERVER_INFO = { name: "notion-mcp", version: "1.0.0" };
 const SUPPORTED_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-// Free plan: max 50 subrequests per invocation. Keep headroom.
 const MAX_SUBREQUESTS = 40;
 
 /* ------------------------------------------------------------------ */
@@ -564,53 +563,55 @@ const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =
     headers: { "Content-Type": "application/json", ...extra },
   });
 
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    const cors = corsHeaders(req, env);
+function requestPath(url: URL): string {
+  let stripped = url.pathname.replace(/^\/\.netlify\/functions\/[^/]+/, "");
+  if (stripped === "") stripped = "/";
+  if (stripped.length > 1 && stripped.endsWith("/")) stripped = stripped.slice(0, -1);
+  return stripped;
+}
 
-    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ status: "ok", ...SERVER_INFO, endpoint: "/mcp" }, 200, cors);
-    }
-    if (url.pathname !== "/mcp") return json({ error: "Not found" }, 404, cors);
+export async function handleRequest(req: Request, env: Env): Promise<Response> {
+  const url = new URL(req.url);
+  const pathname = requestPath(url);
+  const cors = corsHeaders(req, env);
 
-    // DNS-rebinding protection for browser callers
-    const origin = req.headers.get("Origin");
-    const allow = allowedOrigins(env);
-    if (origin && allow.length && !allow.includes(origin)) return json({ error: "Origin not allowed" }, 403);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+  if (pathname === "/" || pathname === "/health") {
+    return json({ status: "ok", ...SERVER_INFO, endpoint: "/mcp" }, 200, cors);
+  }
+  if (pathname !== "/mcp") return json({ error: "Not found" }, 404, cors);
 
-    // Fail closed if secrets are missing
-    if (!env.MCP_AUTH_TOKEN || !env.NOTION_TOKEN) {
-      return json({ error: "Server is not configured (missing secrets)" }, 500, cors);
-    }
+  const origin = req.headers.get("Origin");
+  const allow = allowedOrigins(env);
+  if (origin && allow.length && !allow.includes(origin)) return json({ error: "Origin not allowed" }, 403);
 
-    // Auth
-    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-    const token = bearer || (env.ALLOW_QUERY_TOKEN === "true" ? url.searchParams.get("key") ?? "" : "");
-    if (!safeEqual(token, env.MCP_AUTH_TOKEN)) {
-      return json({ error: "Unauthorized" }, 401, { ...cors, "WWW-Authenticate": "Bearer" });
-    }
+  if (!env.MCP_AUTH_TOKEN || !env.NOTION_TOKEN) {
+    return json({ error: "Server is not configured (missing secrets)" }, 500, cors);
+  }
 
-    // Stateless server: no standalone SSE stream, no sessions.
-    if (req.method !== "POST") {
-      return new Response("Method Not Allowed", { status: 405, headers: { ...cors, Allow: "POST, OPTIONS" } });
-    }
+  const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  const token = bearer || (env.ALLOW_QUERY_TOKEN === "true" ? url.searchParams.get("key") ?? "" : "");
+  if (!safeEqual(token, env.MCP_AUTH_TOKEN)) {
+    return json({ error: "Unauthorized" }, 401, { ...cors, "WWW-Authenticate": "Bearer" });
+  }
 
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return json(rpcErr(null, -32700, "Parse error"), 400, cors);
-    }
+  if (req.method !== "POST") {
+    return new Response("Method Not Allowed", { status: 405, headers: { ...cors, Allow: "POST, OPTIONS" } });
+  }
 
-    if (Array.isArray(body)) {
-      if (!body.length) return json(rpcErr(null, -32600, "Empty batch"), 400, cors);
-      const results = (await Promise.all(body.map((m) => handleMessage(m, env)))).filter((r) => r !== null);
-      return results.length ? json(results, 200, cors) : new Response(null, { status: 202, headers: cors });
-    }
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return json(rpcErr(null, -32700, "Parse error"), 400, cors);
+  }
 
-    const result = await handleMessage(body, env);
-    return result === null ? new Response(null, { status: 202, headers: cors }) : json(result, 200, cors);
-  },
-} satisfies ExportedHandler<Env>;
+  if (Array.isArray(body)) {
+    if (!body.length) return json(rpcErr(null, -32600, "Empty batch"), 400, cors);
+    const results = (await Promise.all(body.map((m) => handleMessage(m, env)))).filter((r) => r !== null);
+    return results.length ? json(results, 200, cors) : new Response(null, { status: 202, headers: cors });
+  }
+
+  const result = await handleMessage(body, env);
+  return result === null ? new Response(null, { status: 202, headers: cors }) : json(result, 200, cors);
+}

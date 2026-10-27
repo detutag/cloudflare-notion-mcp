@@ -3,11 +3,11 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022"],
-    "types": ["@cloudflare/workers-types"],
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src", "netlify"]
 }
