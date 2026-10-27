@@ -1,2 +1,9 @@
-// This branch deploys to Netlify. Cloudflare Workers config lives on main.
-// See netlify.toml and netlify/functions/server.ts.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "notion-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "observability": { "enabled": true }
+  // Optional:
+  // "vars": { "ALLOWED_ORIGINS": "https://your-web-client.example" }
+}
